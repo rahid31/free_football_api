@@ -67,7 +67,7 @@ def table_exists(connection, table_name):
     cursor.close()
     return result is not None
 
-# Create table dynamically based on the flattened JSON data
+# Create table based on the flattened JSON data
 def create_table_from_flat_json(connection, table_name, flat_json_data):
     cursor = connection.cursor()
     columns = []
@@ -119,9 +119,20 @@ def main_country(url, params=None):
         print(f"Error fetching data from {url}, Status Code: {response.status_code}")
         return []
 
+# Fetch data for the "epl_matches" function
+def epl_matches(url, params):
+    response = requests.get(url, headers=headers, params=params if params else None)
+    
+    if response.status_code == 200:
+        data = response.json().get('response', {}).get('matches', [])
+        return data
+    else:
+        print(f"Error fetching data from {url}, Status Code: {response.status_code}")
+        return []
+
 # Function to execute the API request and insert data into MySQL
 def execute_request(function_name, url, params, table_name):
-    # Fetch the data from the API using the function
+
     data = function_name(url, params)
     
     if not data:
@@ -148,7 +159,7 @@ def execute_request(function_name, url, params, table_name):
             connection.close()
             print("MySQL connection closed.")
 
-# Define your API URLs and parameters (Some URLs may not need parameters)
+# API URLs and parameters
 urls = {
     "main_league": {
         "url": "https://free-api-live-football-data.p.rapidapi.com/football-popular-leagues",
@@ -159,14 +170,21 @@ urls = {
         "url": "https://free-api-live-football-data.p.rapidapi.com/football-get-all-countries",
         "params": None,
         "table_name": "country_data"
+    },
+    "epl_matches": {
+        "url": "https://free-api-live-football-data.p.rapidapi.com/football-get-all-matches-by-league",
+        "params": {
+            "leagueid" : "47"
+        },
+        "table_name": "epl_data"
     }
 }
 
 # Main function to execute different API requests
 def main():
-    # Call the respective function dynamically for each URL/parameter combination
     execute_request(main_league, urls["main_league"]["url"], urls["main_league"]["params"], urls["main_league"]["table_name"])
     execute_request(main_country, urls["main_country"]["url"], urls["main_country"]["params"], urls["main_country"]["table_name"])
+    execute_request(epl_matches, urls["epl_matches"]["url"], urls["epl_matches"]["params"], urls["epl_matches"]["table_name"])
 
 if __name__ == "__main__":
     main()
