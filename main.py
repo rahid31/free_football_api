@@ -33,15 +33,34 @@ def connect_to_mysql():
 # Flatten nested JSON data
 def flatten_json(nested_json, parent_key='', sep='_'):
     items = []
-    for key, value in nested_json.items():
-        new_key = f"{parent_key}{sep}{key}" if parent_key else key
-        if isinstance(value, Mapping):
-            items.extend(flatten_json(value, new_key, sep=sep).items())
-        elif isinstance(value, list):
-            for i, sub_value in enumerate(value):
-                items.extend(flatten_json(sub_value, f"{new_key}_{i}", sep=sep).items())
-        else:
-            items.append((new_key, value))
+    # If the nested_json is None or not a dictionary, return an empty list
+    if nested_json is None:
+        return items
+
+    # Only proceed if nested_json is a dictionary
+    if isinstance(nested_json, dict):
+        for key, value in nested_json.items():
+            new_key = f"{parent_key}{sep}{key}" if parent_key else key
+            if isinstance(value, dict):
+                items.extend(flatten_json(value, new_key, sep=sep).items())
+            elif isinstance(value, list):
+                for i, sub_value in enumerate(value):
+                    if isinstance(sub_value, dict):
+                        items.extend(flatten_json(sub_value, f"{new_key}_{i}", sep=sep).items())
+                    else:
+                        items.append((f"{new_key}_{i}", sub_value))
+            else:
+                items.append((new_key, value))
+    
+    # If the nested_json is a list, flatten each element
+    elif isinstance(nested_json, list):
+        for i, sub_value in enumerate(nested_json):
+            new_key = f"{parent_key}_{i}" if parent_key else str(i)
+            if isinstance(sub_value, dict):
+                items.extend(flatten_json(sub_value, new_key, sep=sep).items())
+            else:
+                items.append((new_key, sub_value))
+    
     return dict(items)
 
 # Insert data into MySQL table
@@ -97,12 +116,24 @@ def create_table_from_flat_json(connection, table_name, flat_json_data):
     cursor.close()
     print(f"Table `{table_name}` is ready (created or already exists).")
 
+# Truncate the table if already exists
+def truncate_table(connection, table_name):
+    cursor = connection.cursor()
+    try:
+        cursor.execute(f"TRUNCATE TABLE `{table_name}`")
+        connection.commit()
+        print(f"Table `{table_name}` truncated successfully.")
+    except mysql.connector.Error as err:
+        print(f"Error truncating table {table_name}: {err}")
+    finally:
+        cursor.close()
+
 # Fetch data for the "main_league" function
 def main_league(url, params=None):
     response = requests.get(url, headers=headers, params=params if params else None)
     
     if response.status_code == 200:
-        data = response.json().get('response', {}).get('popular', [])
+        data = response.json().get('response', {}).get('leagues', [])
         return data
     else:
         print(f"Error fetching data from {url}, Status Code: {response.status_code}")
@@ -130,6 +161,37 @@ def epl_matches(url, params):
         print(f"Error fetching data from {url}, Status Code: {response.status_code}")
         return []
 
+# Fetch data for the "transfer_data" function    
+def transfer_data(url, params):
+    data = []
+    response = requests.get(url, headers=headers, params=params if params else None)
+    
+    if response.status_code == 200:
+        total_row_count = response.json().get('response', {}).get('hits', [])
+        limit = 100
+        total_pages = (total_row_count + limit - 1) // limit
+        print(f"Total rows: {total_row_count}")
+        print(f"Total pages available: {total_pages}")
+
+        for page in range(1, total_pages + 1):
+            params['page'] = page 
+                
+            response = requests.get(url, headers=headers, params=params if params else None)
+            
+            if response.status_code == 200:
+                data_page = response.json().get('response', {}).get('transfers', [])
+                if data_page:
+                    data.extend(data_page)
+                    print(f"Page {page} fetched successfully.")
+                else:
+                    print(f"No data found on page {page}.")
+            else:
+                print(f"Error on page {page}: {response.status_code}, {response.text}")
+    else:
+        print(f"Failed to fetch data: {response.status_code}, {response.text}")
+    
+    return data
+
 # Function to execute the API request and insert data into MySQL
 def execute_request(function_name, url, params, table_name):
 
@@ -142,6 +204,11 @@ def execute_request(function_name, url, params, table_name):
     try:
         connection = connect_to_mysql()
 
+        # Check if table exists and truncate if it does
+        if table_exists(connection, table_name):
+            truncate_table(connection, table_name)
+        
+        # Flatten the JSON data
         for item in data:
             flat_item = flatten_json(item)
             
@@ -162,7 +229,7 @@ def execute_request(function_name, url, params, table_name):
 # API URLs and parameters
 urls = {
     "main_league": {
-        "url": "https://free-api-live-football-data.p.rapidapi.com/football-popular-leagues",
+        "url": "https://free-api-live-football-data.p.rapidapi.com/football-get-all-leagues",
         "params": None,
         "table_name": "league_data"
     },
@@ -177,6 +244,14 @@ urls = {
             "leagueid" : "47"
         },
         "table_name": "epl_data"
+    },
+    "transfer_data": {
+        "url": "https://free-api-live-football-data.p.rapidapi.com/football-get-all-transfers",
+        "params": {
+            "page": "1",
+            "fields": "name, playerId, position_label, position_key, transferDate"
+        },
+        "table_name": "transfer_data"
     }
 }
 
@@ -185,6 +260,7 @@ def main():
     execute_request(main_league, urls["main_league"]["url"], urls["main_league"]["params"], urls["main_league"]["table_name"])
     execute_request(main_country, urls["main_country"]["url"], urls["main_country"]["params"], urls["main_country"]["table_name"])
     execute_request(epl_matches, urls["epl_matches"]["url"], urls["epl_matches"]["params"], urls["epl_matches"]["table_name"])
+    execute_request(transfer_data, urls["transfer_data"]["url"], urls["transfer_data"]["params"], urls["transfer_data"]["table_name"])
 
 if __name__ == "__main__":
     main()
