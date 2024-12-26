@@ -5,18 +5,19 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-url = "https://free-api-live-football-data.p.rapidapi.com/football-get-all-matches-by-league"
+url = "https://free-api-live-football-data.p.rapidapi.com/football-get-all-transfers"
 
-params = {"leagueid":"47"}
+params = {"page": "4"
+          }
 
 headers = {
 	"x-rapidapi-key": os.getenv("RAPIDAPI_KEY"),
 	"x-rapidapi-host": os.getenv("RAPIDAPI_HOST")
 }
 
-response = requests.get(url, headers=headers, params=params)
+response = requests.get(url, headers=headers, params=params if params else None)
 
-data = response.json().get('response', {}).get('matches', [])
+data = response.json().get('response', {}).get('transfers', [])
 
 df = pd.DataFrame(data)
 print(df)
